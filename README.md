@@ -1,195 +1,177 @@
-# farm-ts
+# EASE — Emergency Assistance & Smart Escalation
 
-Minimal split backend/frontend starter: **FastAPI + MongoDB** behind a
-**Vite + React 19 + TypeScript** frontend, joined by a small typed fetch layer
-over `/api`. This is a bare skeleton — no app features are implemented. Build on
-top of it.
+> **Demonstration project.** EASE connects emergency reports, location intelligence and human-led response coordination in one platform. It is a PBL prototype, not a real emergency service. **In an emergency in India, call 112.**
 
-## Layout
+EASE has three parts that share one backend:
+
+| Part | What it is | URL (local) |
+|---|---|---|
+| **Public site** | Marketing and explainer pages (Platform, Citizen, Command Centre, Intelligence, How it works, Trust, Contact) | `/` |
+| **Citizen App** | Report an emergency as a guest or a logged-in citizen, then track it | `/app` |
+| **Command Centre** | Staff console: triage queue, unit assignment, shortest-path routing, audit log, analytics | `/ops` |
+
+---
+
+## Why this project
+
+Emergency reports often arrive incomplete, get mis-prioritised, or reach the wrong responder. EASE shows how a report can be captured in seconds, triaged by severity, matched to the **nearest suitable response unit using Dijkstra's shortest-path algorithm**, and tracked end to end. A human operator stays in control of every decision; the system only assists.
+
+## Features
+
+**Citizen App**
+- Guest reporting with no login, OTP, GPS or photo required. Risk signals never block a report.
+- Report categories: medical, accident, fire, flood, theft, violence, EV.
+- `urgency = life` is always treated as **Critical**; otherwise a keyword heuristic assigns High / Medium / Low.
+- Pick a nearby area on the sample Dehradun map; after sending, see the **3 nearest hospitals, police and fire stations** with distance, ETA and helpline (108 / 100 / 101).
+- Track a report by code, reply to operators, cancel while still *Reported* or *Acknowledged*.
+- Optional citizen account with demo OTP (no SMS is sent; the code is shown on screen).
+
+**Command Centre**
+- Live triage queue with filters (status, severity, category, search).
+- **Live critical alerts:** polls every 5 s, shows a red banner, plays a two-tone chime and shows a count in the tab title when a new Critical report arrives.
+- Incident actions: acknowledge, review, change status or priority, assign a unit, add notes, reply to the citizen, flag, link duplicates, resolve, close, reopen.
+- Unit assignment checks the service matches the category (medical/accident → ambulance, fire/flood → fire, theft/violence → police, EV → mechanic) and computes the shortest path.
+- Analytics, full **audit trail** (actor, role, action, target, reason, previous → next) and user/role management.
+- Server-enforced **role-based access control**: Read-only analyst, Dispatcher, Supervisor, Admin.
+
+**Routing engine**
+- Dijkstra's algorithm (binary heap, `heapq`) over a **120-node / 156-edge sample road graph of Dehradun** with 15 facilities.
+- Returns distance (km), ETA (assumed ~21 km/h average, no live traffic), the path, nodes settled and compute time.
+- Interactive visualisation of the shortest path on the homepage and Intelligence page.
+
+## Incident life-cycle
 
 ```
-farm-ts/
-  backend/   FastAPI + motor (async MongoDB) + Pydantic v2 — python, /root/.venv
-  frontend/  Vite + React 19 + Tailwind v4 + shadcn/ui (TypeScript strict)
-  tests/     Playwright e2e workspace (pre-scaffolded)
+Reported → Acknowledged / Under review → Assigned → En route → On scene → Resolved → Closed
+                         ↑                                                     │
+                         └──────────────────── Reopen ─────────────────────────┘
 ```
 
-## Running
+## Tech stack
 
-Two separate processes, managed by supervisor in the pod (see "Pod conventions"
-below); to run them by hand from two terminals instead:
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11+, FastAPI, Pydantic v2, Motor (async MongoDB), Uvicorn |
+| Database | MongoDB (collections: users, sessions, otps, reports, units, audit, messages) |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, shadcn-style components, TanStack Query, React Router, Recharts, Motion |
+| Auth | httpOnly session cookie (8 h), PBKDF2-SHA256 (120k iterations), lock-out for 5 min after 5 failed logins |
+| Algorithms | Dijkstra shortest path, keyword-based severity heuristic |
+
+## Project structure
+
+```
+.
+├── backend/
+│   ├── server.py            # FastAPI app, CORS, router mounting (/api)
+│   ├── seed.py              # idempotent demo data (units, sample incidents, staff)
+│   ├── routers/             # auth, reports, ops, graph (routing), messages
+│   ├── models/ease.py       # Pydantic request/response models
+│   ├── lib/
+│   │   ├── routing.py       # Dijkstra, ETA, nearest facilities
+│   │   ├── city_graph.py    # Dehradun sample graph + facilities
+│   │   ├── security.py      # hashing, sessions
+│   │   ├── audit.py         # audit-log helper
+│   │   └── db.py            # MongoDB connection and indexes
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── pages/           # Home, Platform, Citizen, CitizenApp, CommandCentreOps, Login, ...
+│   │   ├── components/      # site layout, viz (maps, pipeline), ui primitives
+│   │   ├── hooks/           # useSession, useCriticalAlerts
+│   │   └── lib/             # api client, areas, query client
+│   └── vite.config.ts       # dev server on :3000, proxies /api to :8001
+├── memory/SPEC.md           # detailed spec: routes, data model, business rules
+└── reference/               # original single-file HTML prototype
+```
+
+## Getting started
+
+### Prerequisites
+- **Node.js** 20+ and npm
+- **Python** 3.11+
+- **MongoDB** running locally on `localhost:27017` (MongoDB Community as a service, Docker, or an Atlas URI)
+
+### 1. Backend
+
+Create `backend/.env`:
+
+```env
+MONGO_URL="mongodb://localhost:27017"
+DB_NAME="ease"
+CORS_ORIGINS="http://localhost:3000"
+APP_TZ="Asia/Kolkata"
+```
+
+Then, from the `backend` folder:
 
 ```bash
-cd backend && uvicorn server:app --host 0.0.0.0 --port 8001 --reload   # http://localhost:8001
-cd frontend && yarn dev                                                # http://localhost:3000
+python -m venv .venv
+# Windows:      .venv\Scripts\activate
+# macOS/Linux:  source .venv/bin/activate
+pip install -r requirements.txt
+python seed.py                                   # load demo data (safe to re-run)
+uvicorn server:app --port 8001 --reload
 ```
 
-## The `/api` proxy convention
+The API is now at `http://localhost:8001/api`.
 
-Every backend route lives under `/api` (the backend mounts one
-`APIRouter(prefix="/api")`), and the frontend dev server
-(`frontend/vite.config.ts`) proxies `/api/*` to `http://localhost:8001`. So
-frontend code always calls a **relative** path — `apiGet("/status")` →
-`/api/status` — and never an absolute backend URL. The same code works in dev
-(via the Vite proxy) and in production (once both are served behind a single
-origin).
+### 2. Frontend
 
-## Backend
-
-FastAPI, async throughout. `python` is the app venv interpreter
-(`/root/.venv/bin/python`); backend deps are pip-installed from
-`backend/requirements.txt`.
-
-- **Entry point**: `backend/server.py` — creates `app = FastAPI()`, creates
-  `api_router = APIRouter(prefix="/api")`, registers routes **on the router**,
-  and calls `app.include_router(api_router)` at the bottom. CORS middleware is
-  added from `CORS_ORIGINS`. Never hang a route directly off `app` — it would
-  land outside `/api` and the Vite proxy would not reach it.
-- **The route pattern** (copy `status` in `server.py`):
-  1. a Pydantic model per request body and per response
-     (`StatusCheckCreate` / `StatusCheck`);
-  2. an `async def` handler decorated with
-     `@api_router.post("/status", response_model=StatusCheck)`;
-  3. `await` the motor call inside it.
-  FastAPI validates the request against the Pydantic model before your handler
-  runs — a malformed body never reaches your code, it gets an automatic `422`
-  with a `{"detail": [...]}` body.
-- **Growing the backend**: as `server.py` gets crowded, move models to
-  `backend/models/` and routers to `backend/routers/` (one module per resource,
-  each exporting its own `APIRouter`, mounted from `server.py` via
-  `api_router.include_router(...)` or `app.include_router(...)` with the `/api`
-  prefix preserved).
-- **MongoDB**: import the shared handle — `from lib.db import client, db`
-  (`backend/lib/db.py` self-loads `.env` before reading env). Use it from
-  `server.py`, every router, and standalone scripts like `seed.py`; never
-  construct another `AsyncIOMotorClient`. Collections are attributes:
-  `await db.status_checks.insert_one(...)`, `await db.status_checks.find().to_list(1000)`.
-  Motor connects lazily, so importing `server` never blocks on Mongo. `pymongo`
-  is installed too if you need a sync client in a script.
-- **Ids**: documents use a string `id` (`uuid4`) field, not Mongo's `ObjectId`
-  — `ObjectId` is not JSON-serializable and leaks into response bodies. Keep the
-  `uuid4` default-factory pattern from `StatusCheck`.
-- **Config**: `backend/.env` — `MONGO_URL` (connection string), `DB_NAME`
-  (database name), `CORS_ORIGINS`. `server.py` loads it with `python-dotenv`
-  above its local imports, and `lib/db.py` self-loads it so standalone scripts
-  inherit it too. The pod runs `mongod` locally, so `MONGO_URL` points at
-  `localhost`. Add new secrets/config here; read them with `os.environ`.
-- **Dates**: `backend/lib/dates.py` — `today_iso(tz=None)`. The pod clock is
-  UTC; anchor "today" server-side with this, never with client-side date math.
-- **Interactive check**: `cd /app/backend && python -c 'import server'` catches
-  syntax/import errors without waiting for the supervisor log.
-
-## Frontend
-
-- Vite + React 19 + TypeScript strict, dev server on port `3000`.
-- Tailwind CSS v4 (via the `@tailwindcss/vite` plugin — no separate
-  `tailwind.config.js` needed) + shadcn/ui, initialized with the `base-nova`
-  style and `neutral` base color, `@` path alias (`@/*` → `src/*`) wired in both
-  `tsconfig.app.json`/`tsconfig.json` and `vite.config.ts`.
-- `react-router-dom` and `motion` are preinstalled — don't re-add them. `src/App.tsx`
-  is the `<Routes>` table and nothing else; screens live in `src/pages/*.tsx` and are
-  imported as `@/pages/<Name>`. `src/pages/Home.tsx` ships as the worked example. Add
-  a `<Route>` for every page you write, in the same edit that creates the page — a
-  page with no route is unreachable, and any URL without a matching `<Route>` renders a
-  **blank page** — `<Routes>` matches nothing and mounts nothing.
-- Components installed under `src/components/ui/`: button, card, input, label,
-  select, dialog, sheet, tabs, badge, calendar, sonner, textarea, table, popover,
-  dropdown-menu, checkbox. Add more with `npx shadcn@latest add <component>`.
-- `src/lib/api.ts` — the typed fetch layer: `apiGet<T>`, `apiPost<T>`,
-  `apiPut<T>`, `apiPatch<T>`, `apiDelete<T>`, all relative to base `/api`,
-  throwing `ApiError` (with `status` and the parsed body) on any non-2xx.
-  **Nothing infers across the Python boundary** — you declare the response type
-  yourself as a TS interface mirroring the endpoint's Pydantic model, and keeping
-  the two in sync is a manual discipline. When you change a Pydantic model,
-  change its TS interface in the same edit.
-- `src/pages/Home.tsx` is a minimal example of the wiring: TanStack Query's `useQuery`
-  with `apiGet<StatusCheck[]>("/status")` as the `queryFn`. It is a **non-blocking
-  connectivity probe**, not a proof of the round trip — the result is deliberately
-  discarded so the splash renders identically with no backend. `apiGet<T>` does no
-  runtime validation either; `T` is your assertion, not a check. See the
-  static-preview rule in `TEMPLATE.md` §4 for why no page may be gated on a fetch.
-
-## TypeScript
-
-`frontend/tsconfig.app.json` / `tsconfig.node.json` have `strict: true`. In the
-pod:
+In a second terminal, from the `frontend` folder:
 
 ```bash
-cd frontend && yarn typecheck
+npm install
+npm run dev
 ```
 
-— plain `tsc --noEmit` run from `frontend/` checks ZERO files (root tsconfig uses
-project references with `"files": []`) and exits 0 even with type errors. Always
-use `-b` for the frontend. Lint with `cd frontend && yarn lint` (oxlint).
+Open **http://localhost:3000**. The dev server proxies every `/api/*` request to the backend on port 8001, so the frontend never uses an absolute backend URL.
 
-## Data fetching
+### Demo accounts (created by `seed.py`)
 
-TanStack Query is wired: `QueryClientProvider` in `src/main.tsx`, `useQuery` demo
-in `src/pages/Home.tsx` (see above). Use `useQuery`/`useMutation`, not
-fetch-in-`useEffect`.
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@ease.demo` | `EaseDemo112` |
+| Dispatcher | `dispatcher@ease.demo` | `EaseDemo112` |
+| Read-only analyst | `analyst@ease.demo` | `EaseDemo112` |
 
-## Completion gate (tier 1)
+Staff sign in at `/login` (Staff / Command Centre tab) and land on `/ops`. Citizens can register at `/login`; the demo OTP is shown on screen. The Citizen App at `/app` works without any login. These credentials are for local demos only.
 
-When the build is complete, run tier 1 once, all in the same turn: a curl smoke
-over the key `/api` endpoints (assert status AND a response field, plus one
-negative case), `cd frontend && yarn typecheck`, and ONE happy-path browser pass
-through the core user journey. Clean on all three → finish; any failure is a real
-bug — fix it, re-run the failed check, and escalate to the testing subagent.
-No routine typecheck/lint/smoke passes during the build — tier 1 runs exactly once.
+## API overview
+
+All routes are under `/api`. See `memory/SPEC.md` for the full list.
+
+| Area | Endpoints |
+|---|---|
+| Routing | `GET /routing/graph`, `GET /routing/route`, `GET /routing/route/nodes`, `GET /routing/nearby` |
+| Auth | `POST /auth/citizen/otp`, `/auth/citizen/register`, `/auth/citizen/login`, `/auth/staff/login`, `GET /auth/me`, `POST /auth/logout` |
+| Reports (citizen) | `POST /reports`, `GET /reports/mine`, `GET /reports/{code}`, `POST /reports/{code}/cancel`, `/reply` |
+| Operations (staff) | `GET /ops/queue`, `GET /ops/incident/{code}`, `POST /ops/incident/{code}/{ack\|status\|priority\|assign\|resolve\|close\|reopen\|note\|reply\|review\|flag\|link}`, `GET /ops/units`, `/audit`, `/analytics`, `/users` |
+| Contact | `POST /contact` |
+
+With the backend running, interactive API docs are available at `http://localhost:8001/docs`.
+
+## Seed data
+
+`python seed.py` creates 8 response units (4 ambulances, 2 fire, 2 police), 8 clearly labelled sample incidents (`SAMPLE-101` to `SAMPLE-108`), audit history and the three demo staff accounts. It is idempotent, so re-running it will not duplicate data.
+
+## Limitations (honest notes)
+
+- The map is an **illustrative, hand-drawn sample graph of Dehradun**, not a navigation-grade map. Distances are true shortest paths on that graph; ETAs assume ~21 km/h and ignore live traffic.
+- No SMS, email or real emergency-service integration. OTP codes are shown on screen and contact messages are only stored.
+- Sample incidents, units and facilities are demo data.
+- Intended for local demonstration; it has not been hardened for production use.
+
+## Team
+
+Team ID : DSCPP-2026-T089
+Members
+Abhinav Semwal
+Arpita Gupta
+Pranshu Mathur
+Goyam Jain
 
 
-## Testing
+## Acknowledgements
 
-Two lanes.
+Built as a Project-Based Learning (PBL) project for the Data Structures in C and OOP in C++ course. The scaffold was generated with Emergent and then customised.
 
-**Backend (pytest)** — specs in `backend/tests/` as `test_*.py`, run with:
-
-```bash
-cd /app/backend && pytest
-```
-
-`backend/pytest.ini` is canonical: `addopts = -n 2 --dist loadscope` (pytest-xdist,
-already parallel — do not pass your own `-n`) and `asyncio_mode = auto` (so
-`async def test_...` needs no marker). Serial is `-n 0`, **never**
-`-p no:xdist` (that errors, because `addopts` still passes `-n`/`--dist`).
-`backend/tests/conftest.py` is pre-scaffolded — a sync `client` fixture
-(`httpx.Client` rooted at `/api`), an async `aclient`, and an `api_url()` helper,
-all pointed at `BACKEND_URL` (default `http://localhost:8001`). Tests hit the
-live uvicorn process, so the app under test is the one the browser sees. Add
-app-specific fixtures below the marker; do not re-create the file.
-
-**Frontend (Playwright)** — `/app/tests/` is pre-scaffolded:
-`playwright.config.ts` (canonical — edit the marked lines only),
-`fixtures/helpers.ts`, and a `package.json` that resolves
-`@playwright/test@1.62.0` (node_modules baked into the image). Write specs into
-`tests/e2e/`. Do NOT re-create the config/helpers or install/upgrade playwright —
-matching Chromium browsers live at `/pw-browsers`.
-
-The backend lane is pytest: this template's backend is Python, so `vitest` does
-not apply to it.
-
-## Pod conventions
-
-This template runs under supervisord in the Emergent agent pod — supersedes any
-local-run instructions above.
-
-- Backend, frontend, and `mongod` are each a supervisor program. After code or
-  config changes, restart and wait for readiness:
-
-  ```bash
-  sudo supervisorctl restart frontend backend
-  until curl -sf -o /dev/null http://localhost:3000; do sleep 2; done
-  ```
-
-- Status, only after a restart you triggered:
-  `sudo supervisorctl status frontend backend`. Logs:
-  `/var/log/supervisor/backend.err.log`, `backend.out.log`,
-  `frontend.err.log`.
-- App in a browser: the pod's preview URL (frontend, port `3000`). Backend API
-  directly at port `8001`.
-- `mongod` runs locally in the pod (`--bind_ip_all`); `MONGO_URL` in
-  `backend/.env` points at `localhost`, no separate Mongo container.
-- Both dev servers hot-reload on file edits (uvicorn `--reload` for the backend,
-  Vite HMR for the frontend); no rebuild step needed for normal iteration. A
-  restart is still needed after changing `.env`, `requirements.txt`, or
-  `vite.config.ts`.
