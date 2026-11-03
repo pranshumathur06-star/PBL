@@ -154,7 +154,7 @@ With the backend running, interactive API docs are available at `http://localhos
 
 `python seed.py` creates 8 response units (4 ambulances, 2 fire, 2 police), 8 clearly labelled sample incidents (`SAMPLE-101` to `SAMPLE-108`), audit history and the three demo staff accounts. It is idempotent, so re-running it will not duplicate data.
 
-## Limitations (honest notes)
+## Limitations 
 
 - The map is an **illustrative, hand-drawn sample graph of Dehradun**, not a navigation-grade map. Distances are true shortest paths on that graph; ETAs assume ~21 km/h and ignore live traffic.
 - No SMS, email or real emergency-service integration. OTP codes are shown on screen and contact messages are only stored.
