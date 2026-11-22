@@ -172,7 +172,7 @@ void login(httplib::Response& res, mongocxx::database& db, const std::string& ty
 } // namespace
 
 void AuthRouter::registerRoutes(httplib::Server& server, mongocxx::database& db) {
-    server.Post("/auth/citizen/otp", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/auth/citizen/otp", [&db](const httplib::Request& req, httplib::Response& res) {
         json b = body(req);
         std::string phone = trim(field(b, "phone")), password = field(b, "password"), name = trim(field(b, "name"));
         if (!validPhone(phone)) return error(res, 422, "Enter a valid 10-digit Indian mobile number.");
@@ -187,7 +187,7 @@ void AuthRouter::registerRoutes(httplib::Server& server, mongocxx::database& db)
         send(res, {{"demo_code", code}, {"note", "Demo only: no SMS is sent. This code would normally arrive by SMS."}});
     });
 
-    server.Post("/auth/citizen/register", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/auth/citizen/register", [&db](const httplib::Request& req, httplib::Response& res) {
         json b = body(req);
         std::string phone = trim(field(b, "phone")), code = trim(field(b, "code"));
         json otp = findOne(db["otps"], {{"phone", phone}});
@@ -208,15 +208,15 @@ void AuthRouter::registerRoutes(httplib::Server& server, mongocxx::database& db)
         send(res, publicUser(user));
     });
 
-    server.Post("/auth/citizen/login", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/auth/citizen/login", [&db](const httplib::Request& req, httplib::Response& res) {
         json b = body(req); login(res, db, "citizen", trim(field(b, "ident")), field(b, "password"));
     });
-    server.Post("/auth/staff/login", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/auth/staff/login", [&db](const httplib::Request& req, httplib::Response& res) {
         json b = body(req); std::string email = lower(trim(field(b, "ident")));
         if (!validEmail(email)) return error(res, 422, "Enter your work email address.");
         login(res, db, "staff", email, field(b, "password"));
     });
-    server.Post("/auth/staff/bootstrap", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/auth/staff/bootstrap", [&db](const httplib::Request& req, httplib::Response& res) {
         json b = body(req);
         if (!findOne(db["users"], {{"type", "staff"}}).is_null())
             return error(res, 409, "Staff accounts already exist — sign in instead.");
@@ -231,12 +231,12 @@ void AuthRouter::registerRoutes(httplib::Server& server, mongocxx::database& db)
         setSession(res, db, id);
         send(res, publicUser(user));
     });
-    server.Get("/auth/me", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Get("/api/auth/me", [&db](const httplib::Request& req, httplib::Response& res) {
         json user = principal(req, db);
         if (user.is_null()) { res.status = 200; res.set_content("null", "application/json"); }
         else send(res, user);
     });
-    server.Post("/auth/logout", [&db](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/auth/logout", [&db](const httplib::Request& req, httplib::Response& res) {
         std::string token = cookieToken(req);
         if (!token.empty()) erase(db["sessions"], {{"token", token}});
         res.status = 204;
