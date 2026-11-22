@@ -286,6 +286,19 @@ setMapPoint(null);
                     {gpsBusy ? "Locating…" : gps ? `GPS attached · ±${Math.round(gps.acc)} m (tap to refresh)` : "Attach GPS location (optional)"}
                   </button>
                   {gpsNote && <p className="text-xs text-slate-500">{gpsNote}</p>}
+                  <div>
+  <p className="mb-2 text-[12px] text-slate-400">
+    Or select your emergency location directly on the map:
+  </p>
+
+  <LocationMap
+    position={mapPoint ?? gps}
+    onSelect={(lat, lng) => {
+      setMapPoint({ lat, lng });
+      setGpsNote("Location selected on the map.");
+    }}
+  />
+</div>
                   <label className="block">
                     <span className="text-[12px] text-slate-400">Nearest area on the sample Dehradun map (for nearby help)</span>
                     <select value={area} onChange={(e) => setArea(e.target.value)} data-testid="citizen-area-select"
