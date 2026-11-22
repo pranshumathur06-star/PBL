@@ -73,6 +73,7 @@ export default function CitizenApp() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy });
+setMapPoint(null);
         setGpsNote("GPS attached (optional — you can clear it or ignore it).");
         setGpsBusy(false);
       },
