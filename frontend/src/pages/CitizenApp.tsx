@@ -53,6 +53,7 @@ export default function CitizenApp() {
   const [landmark, setLandmark] = useState("");
   const [pin, setPin] = useState("");
   const [gps, setGps] = useState<{ lat: number; lng: number; acc: number } | null>(null);
+  const [mapPoint, setMapPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsNote, setGpsNote] = useState("");
   const [injuries, setInjuries] = useState("unknown");
